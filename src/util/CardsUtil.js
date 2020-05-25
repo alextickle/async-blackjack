@@ -44,4 +44,4 @@ const getMaximumHandValue = (cards) => {
     }
 }
 
-export default {getMaximumHandValue, getMaximumHandValue, ALL_CARDS};
+export {getMinimumHandValue, getMaximumHandValue};

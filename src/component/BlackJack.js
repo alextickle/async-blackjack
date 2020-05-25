@@ -1,6 +1,7 @@
 import React, {Component} from "react";
 import DeckService from "../service/DeckService";
-import CardsUtil from "../util/CardsUtil";
+import {getMinimumHandValue, getMaximumHandValue} from "../util/CardsUtil";
+import Hand from "./Hand";
 
 class BlackJack extends Component {
 
@@ -9,15 +10,13 @@ class BlackJack extends Component {
         this.state = {
             playerCards: [],
             dealerCards: [],
-            playerBusted: false,
-            dealerBusted: false,
-            playerFinished: false,
-            dealerHandFinalValue: null
+            isDealerBusted: false,
+            isPlayerFinished: false,
+            gameOver: false
         };
 
-        this.dealerPlay = this.dealerPlay.bind(this);
-        this.dealerTurn = this.dealerTurn.bind(this);
-
+        this.startDealerTurn = this.startDealerTurn.bind(this);
+        this.makeDecisionForDealer = this.makeDecisionForDealer.bind(this);
     }
 
     componentDidMount(){
@@ -29,39 +28,69 @@ class BlackJack extends Component {
             })
     }
 
+    handleNewGame = () => {
+        DeckService.getNewDeck()
+            .then(deckId => DeckService.shuffleDeck(deckId))
+            .then(deckId => {
+                this.setState({
+                    playerCards: [],
+                    dealerCards: [],
+                    isPlayerFinished: false,
+                    gameOver: false,
+                    message: null,
+                    deckId
+                });
+                return this.dealCards(deckId);
+            })
+    }
+
     handlePlayerDraw = () => {
         const {deckId, playerCards} = this.state;
         DeckService.drawCards(deckId, 1)
             .then(data => {
                 playerCards.push(data.cards[0]);
                 const newState = {playerCards}
-                if (CardsUtil.getMinimumHandValue(playerCards) > 21){
-                    newState.playerBusted = true;
+                if (getMinimumHandValue(playerCards) > 21){
+                    newState.isPlayerFinished = true;
+                    newState.message = "Players busts, Dealer wins!"
+                    newState.gameOver = true;
                 }
                 this.setState(newState);
             })
     }
 
-
-
     handleStay = () => {
-        this.setState({playerFinished: true});
-        this.dealerPlay();
+        this.setState({isPlayerFinished: true, message: "Dealer drawing..."});
+        this.startDealerTurn();
     }
 
-    async dealerPlay() {
-        let dealerFinished = false;
-        while (!dealerFinished){
-            dealerFinished = await this.dealerTurn();
+    async startDealerTurn() {
+        let isDealerFinished = false;
+        while (!isDealerFinished){
+            isDealerFinished = await this.makeDecisionForDealer();
+        }
+        const {isDealerBusted} = this.state;
+        if (!isDealerBusted){
+            this.determineWinner();
         }
     }
 
     determineWinner = () => {
-        const {dealerHandFinalValue, playerCards} = this.state;
-        // TODO
+        const {dealerCards, playerCards} = this.state;
+        let message;
+        const playerHandFinalValue = getMaximumHandValue(playerCards);
+        const dealerHandFinalValue = getMaximumHandValue(dealerCards);
+        if (dealerHandFinalValue > playerHandFinalValue){
+            message = `Dealer wins, ${dealerHandFinalValue} >= ${playerHandFinalValue}`;
+        } else if (dealerHandFinalValue === playerHandFinalValue){
+            message = `Tie, ${dealerHandFinalValue} = ${playerHandFinalValue}`;
+        } else {
+            message = `Player wins, ${playerHandFinalValue} >= ${dealerHandFinalValue}`;
+        }
+        this.setState({message, gameOver: true});
     }
 
-    dealerDraw = () => {
+    drawForDealer = () => {
         const {deckId, dealerCards} = this.state;
         return DeckService.drawCards(deckId, 1)
             .then(data => {
@@ -71,18 +100,21 @@ class BlackJack extends Component {
             })
     }
 
-    async dealerTurn() {
+    async makeDecisionForDealer() {
         const {dealerCards} = this.state;
-        if (CardsUtil.getMinimumHandValue(dealerCards) > 21){
-            this.setState({dealerBusted: true})
-            return Promise.resolve(true);
+        if (getMinimumHandValue(dealerCards) > 21){
+            this.setState({
+                message: "Dealer busts, player wins",
+                isDealerBusted: true,
+                gameOver: true
+            }, () => Promise.resolve(true));
         } else {
-            const maximumHandValue = CardsUtil.getMaximumHandValue(dealerCards);
+            const maximumHandValue = getMaximumHandValue(dealerCards);
             if (maximumHandValue >= 17){
                 this.setState({dealerHandFinalValue: maximumHandValue});
                 return Promise.resolve(true);
             } else {
-                return this.dealerDraw();
+                return this.drawForDealer();
             }
         }
     }
@@ -101,33 +133,35 @@ class BlackJack extends Component {
     }
 
     render(){
-        const {playerCards, dealerCards, playerBusted, dealerBusted, playerFinished} = this.state;
-        console.log(this.state);
-        const dealerCardsToRender = (playerFinished || dealerCards.length === 0) ? dealerCards : dealerCards.slice(0,1);
+        const {playerCards, dealerCards, isPlayerFinished, gameOver, message} = this.state;
+        const dealerCardsToRender = (isPlayerFinished || dealerCards.length === 0) ? dealerCards : dealerCards.slice(0,1);
 
         return (
-            <div>
-                PLAYER
-                <div>
-                    {playerCards.length !== 0 && playerCards.map((card, i) => {
-                        return <img style={{size: "50%"}} key={i} src={card.image}/>;
-                    })}
+            <div className="row">
+                <div className="col-sm-5">
+                    <Hand title="PLAYER" cards={playerCards}/>
                 </div>
-                {!playerFinished &&
-                    <div>
-                        <button onClick={this.handlePlayerDraw}>Hit</button>
-                        <button onClick={this.handleStay}>Stay</button>
-                    </div>
-                }
-                <br/>
-                DEALER
-                <div>
-                    {dealerCardsToRender.map((card, i) => {
-                        return <img style={{size: "50%"}} key={i} src={card.image}/>;
-                    })}
+                <div className="col-sm-2" style={{paddingTop: 100}}>
+                    {!isPlayerFinished &&
+                        <div className="row">
+                            <div className="col-sm-3 offset-sm-2">
+                                <button onClick={this.handlePlayerDraw}>Hit</button>
+                            </div>
+                            <div className="col-sm-3 offset-sm-2">
+                                <button onClick={this.handleStay}>Stay</button>
+                            </div>
+                        </div>
+                    }
+                    {message &&
+                        <div>{message}</div>
+                    }
+                    {gameOver &&
+                        <button onClick={this.handleNewGame}>New Game</button>
+                    }
                 </div>
-                {playerBusted && <div style={{color: 'red'}}>PLAYER BUSTED</div>}
-                {dealerBusted && <div style={{color: 'red'}}>DEALER BUSTED</div>}
+                <div className="col-sm-5">
+                    <Hand title="DEALER" cards={dealerCardsToRender}/>
+                </div>
             </div>
         );
     }
