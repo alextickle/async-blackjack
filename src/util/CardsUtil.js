@@ -35,7 +35,7 @@ const getMaximumHandValue = (cards) => {
         return minimumHandValue;
     } else {
         for (let i = acesCount; i >= 1; i--){
-            const handValue = minimumHandValue + (9 * i);
+            const handValue = minimumHandValue + (10 * i);
             if (handValue <= 21){
                 return handValue;
             }

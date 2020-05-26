@@ -1,171 +1,150 @@
-import React, {Component} from "react";
+import React, {useState, useEffect, useRef} from "react";
 import DeckService from "../service/DeckService";
 import {getMinimumHandValue, getMaximumHandValue} from "../util/CardsUtil";
 import Hand from "./Hand";
 
-class BlackJack extends Component {
+function BlackJack() {
 
-    constructor(){
-        super();
-        this.state = {
-            playerCards: [],
-            dealerCards: [],
-            isDealerBusted: false,
-            isPlayerFinished: false,
-            gameOver: false
-        };
+    const [playerCards, setPlayerCards] = useState([]);
+    const [isPlayerFinished, setIsPlayerFinished] = useState(false);
+    const [isGameOver, setIsGameOver] = useState(false);
+    const [deckId, setDeckId] = useState(null);
+    const [message, setMessage] = useState(null);
 
-        this.startDealerTurn = this.startDealerTurn.bind(this);
-        this.makeDecisionForDealer = this.makeDecisionForDealer.bind(this);
-    }
+    const dealerCards = useRef([]);
+    const isDealerBusted = useRef(false);
 
-    componentDidMount(){
+    useEffect(() => {
         DeckService.getNewDeck()
             .then(deckId => DeckService.shuffleDeck(deckId))
             .then(deckId => {
-                this.setState({deckId});
-                return this.dealCards(deckId)
+                setDeckId(deckId);
+                return dealCards(deckId)
             })
-    }
+    }, []);
 
-    handleNewGame = () => {
+    const handleNewGame = () => {
         DeckService.getNewDeck()
             .then(deckId => DeckService.shuffleDeck(deckId))
             .then(deckId => {
-                this.setState({
-                    playerCards: [],
-                    dealerCards: [],
-                    isPlayerFinished: false,
-                    gameOver: false,
-                    message: null,
-                    deckId
-                });
-                return this.dealCards(deckId);
+                setDeckId(deckId);
+                dealerCards.current = [];
+                setPlayerCards([]);
+                setIsGameOver(false);
+                setIsPlayerFinished(false);
+                isDealerBusted.current = false;
+                setMessage(null);
+                return dealCards(deckId);
             })
     }
 
-    handlePlayerDraw = () => {
-        const {deckId, playerCards} = this.state;
+    const handlePlayerDraw = () => {
         DeckService.drawCards(deckId, 1)
-            .then(data => {
-                playerCards.push(data.cards[0]);
-                const newState = {playerCards}
-                if (getMinimumHandValue(playerCards) > 21){
-                    newState.isPlayerFinished = true;
-                    newState.message = "Players busts, Dealer wins!"
-                    newState.gameOver = true;
+            .then(cards => {
+                const newHand = playerCards.slice();
+                newHand.push(cards[0]);
+                setPlayerCards(newHand);
+                if (getMinimumHandValue(newHand) > 21){
+                    setIsPlayerFinished(true);
+                    setMessage("Players busts, Dealer wins!");
+                    setIsGameOver(true);
                 }
-                this.setState(newState);
             })
     }
 
-    handleStay = () => {
-        this.setState({isPlayerFinished: true, message: "Dealer drawing..."});
-        this.startDealerTurn();
+    const handleStay = () => {
+        setMessage("Dealer drawing...");
+        startDealerTurn();
     }
 
-    async startDealerTurn() {
-        let isDealerFinished = false;
-        while (!isDealerFinished){
-            isDealerFinished = await this.makeDecisionForDealer();
-        }
-        const {isDealerBusted} = this.state;
-        if (!isDealerBusted){
-            this.determineWinner();
-        }
-    }
-
-    determineWinner = () => {
-        const {dealerCards, playerCards} = this.state;
+    const determineWinner = () => {
         let message;
         const playerHandFinalValue = getMaximumHandValue(playerCards);
-        const dealerHandFinalValue = getMaximumHandValue(dealerCards);
+        const dealerHandFinalValue = getMaximumHandValue(dealerCards.current);
         if (dealerHandFinalValue > playerHandFinalValue){
-            message = `Dealer wins, ${dealerHandFinalValue} >= ${playerHandFinalValue}`;
+            message = `Dealer wins, ${dealerHandFinalValue} > ${playerHandFinalValue}`;
         } else if (dealerHandFinalValue === playerHandFinalValue){
             message = `Tie, ${dealerHandFinalValue} = ${playerHandFinalValue}`;
         } else {
-            message = `Player wins, ${playerHandFinalValue} >= ${dealerHandFinalValue}`;
+            message = `Player wins, ${playerHandFinalValue} > ${dealerHandFinalValue}`;
         }
-        this.setState({message, gameOver: true});
+        setMessage(message);
+        setIsGameOver(true);
     }
 
-    drawForDealer = () => {
-        const {deckId, dealerCards} = this.state;
-        return DeckService.drawCards(deckId, 1)
-            .then(data => {
-                dealerCards.push(data.cards[0]);
-                this.setState({dealerCards});
-                return Promise.resolve(false);
-            })
+    const startDealerTurn = async () => {
+        let isDealerFinished = false;
+        while (!isDealerFinished){
+            isDealerFinished = await makeDecisionForDealer();
+        }
+        if (!isDealerBusted.current){
+            determineWinner();
+        }
     }
 
-    async makeDecisionForDealer() {
-        const {dealerCards} = this.state;
-        if (getMinimumHandValue(dealerCards) > 21){
-            this.setState({
-                message: "Dealer busts, player wins",
-                isDealerBusted: true,
-                gameOver: true
-            }, () => Promise.resolve(true));
+    const makeDecisionForDealer = async () => {
+        if (getMinimumHandValue(dealerCards.current) > 21){
+            setMessage("Dealer busts, player wins");
+            isDealerBusted.current = true;
+            setIsGameOver(true);
+            return Promise.resolve(true);
         } else {
-            const maximumHandValue = getMaximumHandValue(dealerCards);
+            const maximumHandValue = getMaximumHandValue(dealerCards.current);
             if (maximumHandValue >= 17){
-                this.setState({dealerHandFinalValue: maximumHandValue});
                 return Promise.resolve(true);
             } else {
-                return this.drawForDealer();
+                return drawForDealer();
             }
         }
     }
 
-    dealCards = (deckId) => {
-        return DeckService.drawCards(deckId, 4)
-            .then(data => {
-                const playerCards = [];
-                const dealerCards = [];
-                playerCards.push(data.cards[0]);
-                dealerCards.push(data.cards[1]);
-                playerCards.push(data.cards[2]);
-                dealerCards.push(data.cards[3]);
-                this.setState({playerCards, dealerCards});
+    const drawForDealer = () => {
+        return DeckService.drawCards(deckId, 1)
+            .then(cards => {
+                dealerCards.current.push(cards[0]);
+                return Promise.resolve(false);
             })
     }
 
-    render(){
-        const {playerCards, dealerCards, isPlayerFinished, gameOver, message} = this.state;
-        const dealerCardsToRender = (isPlayerFinished || dealerCards.length === 0) ? dealerCards : dealerCards.slice(0,1);
-
-        return (
-            <div className="row">
-                <div className="col-sm-5">
-                    <Hand title="PLAYER" cards={playerCards}/>
-                </div>
-                <div className="col-sm-2" style={{paddingTop: 100}}>
-                    {!isPlayerFinished &&
-                        <div className="row">
-                            <div className="col-sm-3 offset-sm-2">
-                                <button onClick={this.handlePlayerDraw}>Hit</button>
-                            </div>
-                            <div className="col-sm-3 offset-sm-2">
-                                <button onClick={this.handleStay}>Stay</button>
-                            </div>
-                        </div>
-                    }
-                    {message &&
-                        <div>{message}</div>
-                    }
-                    {gameOver &&
-                        <button onClick={this.handleNewGame}>New Game</button>
-                    }
-                </div>
-                <div className="col-sm-5">
-                    <Hand title="DEALER" cards={dealerCardsToRender}/>
-                </div>
-            </div>
-        );
+    const dealCards = (deckId) => {
+        return DeckService.drawCards(deckId, 3)
+            .then(cards => {
+                const newPlayerHand = [];
+                newPlayerHand.push(cards[0]);
+                dealerCards.current.push(cards[1]);
+                newPlayerHand.push(cards[2]);
+                setPlayerCards(newPlayerHand);
+            })
     }
 
+    return (
+        <div className="row">
+            <div className="col-sm-5">
+                <Hand title="PLAYER" cards={playerCards}/>
+            </div>
+            <div className="col-sm-2" style={{paddingTop: 100}}>
+                {!isPlayerFinished &&
+                    <div className="row">
+                        <div className="col-sm-3 offset-sm-2">
+                            <button onClick={handlePlayerDraw}>Hit</button>
+                        </div>
+                        <div className="col-sm-3 offset-sm-2">
+                            <button onClick={handleStay}>Stay</button>
+                        </div>
+                    </div>
+                }
+                {message &&
+                    <div>{message}</div>
+                }
+                {isGameOver &&
+                    <button onClick={handleNewGame}>New Game</button>
+                }
+            </div>
+            <div className="col-sm-5">
+                <Hand title="DEALER" cards={dealerCards.current}/>
+            </div>
+        </div>
+    );
 }
 
 export default BlackJack;

@@ -3,6 +3,7 @@ const SERVICE = "https://deckofcardsapi.com/api/deck";
 const drawCards = (deckId, numberOfCards = 1) => {
     return fetch(SERVICE + "/" + deckId + "/draw?" + "count=" + numberOfCards)
         .then(response => response.json())
+        .then(data => data.cards)
 }
 
 const getNewDeck = () => {
